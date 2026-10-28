@@ -195,6 +195,29 @@ test("sweep cron mengirim key order PAID dan melewati yang belum lunas", async (
   assert.equal(JSON.parse(await kv.get("order:PEND1")).delivered, false);
 });
 
+test("pesan kirim kunci mencantumkan base URL + model", async () => {
+  const { fetcher } = stubArxpay({ RSLURL1: { status: "PAID", api_key: "arx-live-URL1", product_name: "Paket 1M Token" } });
+  const mkOrder = () =>
+    JSON.stringify({ ref: "RSLURL1", chatId: CHAT, productId: 28, sellPrice: 7150, status: "pending", delivered: false, createdAt: 1 });
+  // Tanpa API_BASE_URL → fallback domain whitelabel.
+  const kv = new FakeKV();
+  const tg = fakeTg();
+  await kv.put("order:RSLURL1", mkOrder());
+  await handleUpdate(ENV, kv, tg, cq("check:RSLURL1"), fetcher);
+  const msg = tg.sent.find((s) => s.text && s.text.includes("arx-live-URL1")).text;
+  assert.ok(msg.includes("https://rest-api.arsgaming.ai.id/v1\n"));
+  assert.ok(msg.includes("deepseek-v4.1-flash-uncensored"));
+  assert.ok(msg.includes("glm-5.3-flash-uncensored"));
+  // Dengan API_BASE_URL → pakai env (slash akhir dipangkas), bukan fallback.
+  const kv2 = new FakeKV();
+  const tg2 = fakeTg();
+  await kv2.put("order:RSLURL1", mkOrder());
+  await handleUpdate({ ...ENV, API_BASE_URL: "https://api.contoh.id/v1/" }, kv2, tg2, cq("check:RSLURL1"), fetcher);
+  const msg2 = tg2.sent.find((s) => s.text && s.text.includes("arx-live-URL1")).text;
+  assert.ok(msg2.includes("https://api.contoh.id/v1\n"));
+  assert.ok(!msg2.includes("rest-api.arsgaming.ai.id"));
+});
+
 test("verifikasi webhook secret", () => {
   const req = (token) => ({ headers: { get: (n) => (n === "X-Telegram-Bot-Api-Secret-Token" ? token : null) } });
   assert.equal(checkWebhookSecret(req("x"), {}), true);

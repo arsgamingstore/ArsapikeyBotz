@@ -21,6 +21,9 @@ Bot Telegram reseller ArxPays via API (docs: arxpay.my.id/docs/reseller):
   + tombol Cek Status untuk yang masih pending.
 - Cron tiap menit → sapu order pending → kalau PAID, kirim key
   otomatis (cadangan kalau pembeli lupa tekan Cek Status).
+- Pesan kirim kunci selalu mencantumkan Base URL + 2 model
+  (deepseek-v4.1-flash-uncensored, glm-5.3-flash-uncensored) supaya
+  pembeli langsung tahu pakainya di mana (lihat `API_BASE_URL` §4).
 
 ## 2. Adaptasi jujur: polling 3 detik docs TIDAK BISA di Workers
 
@@ -68,6 +71,8 @@ Secrets (dashboard Worker → Settings → Variables → Secrets):
 
 Variables (biasa, bukan secret — nilainya tidak sensitif):
 - `SELL_PRICES` — JSON map product_id → harga jual (lihat §3).
+- `API_BASE_URL` — base URL whitelabel yang dicantumkan di pesan
+  kirim kunci (opsional; fallback `https://rest-api.arsgaming.ai.id/v1`).
 - `ADMIN_CONTACT` — username Telegram admin (tanpa @) untuk tombol
   Hubungi Admin; kosong = tombol tidak tampil sebagai link.
 

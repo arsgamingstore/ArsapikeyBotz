@@ -58,6 +58,14 @@ function productById(id) {
   return PRODUCTS.find((p) => p.id === id) || null;
 }
 
+// Pesan kirim kunci: selalu cantumkan base URL + model supaya pembeli
+// langsung tahu pakainya di mana. Base URL dari env API_BASE_URL,
+// fallback ke domain whitelabel.
+function keyDeliveryMessage(st, fallbackName, env) {
+  const baseUrl = String(env.API_BASE_URL || "https://rest-api.arsgaming.ai.id/v1").replace(/\/$/, "");
+  return `✅ Pembayaran berhasil!\n\nProduk: ${st.productName || fallbackName}\n\nAPI key kamu:\n${st.apiKey}\n\nBase URL:\n${baseUrl}\n\nModel:\n• deepseek-v4.1-flash-uncensored\n• glm-5.3-flash-uncensored\n\nSimpan key ini baik-baik. Key tidak disimpan di bot — kalau hilang, hubungi admin.`;
+}
+
 export async function handleUpdate(env, kv, tg, update, fetcher) {
   const sellPrices = parseSellPrices(env.SELL_PRICES);
 
@@ -240,7 +248,7 @@ export async function handleUpdate(env, kv, tg, update, fetcher) {
         const p = productById(order.productId);
         await tg.sendMessage(
           chatId,
-          `✅ Pembayaran berhasil!\n\nProduk: ${st.productName || (p ? p.name : order.productId)}\n\nAPI key kamu:\n${st.apiKey}\n\nSimpan key ini baik-baik. Key tidak disimpan di bot — kalau hilang, hubungi admin.`,
+          keyDeliveryMessage(st, p ? p.name : order.productId, env),
           mainMenuKeyboard(),
         );
         return;
@@ -267,7 +275,7 @@ export async function sweepPendingOrders(env, kv, tg, fetcher) {
       const p = productById(order.productId);
       await tg.sendMessage(
         order.chatId,
-        `✅ Pembayaran berhasil!\n\nProduk: ${st.productName || (p ? p.name : order.productId)}\n\nAPI key kamu:\n${st.apiKey}\n\nSimpan key ini baik-baik. Key tidak disimpan di bot — kalau hilang, hubungi admin.`,
+        keyDeliveryMessage(st, p ? p.name : order.productId, env),
         mainMenuKeyboard(),
       );
     } catch {

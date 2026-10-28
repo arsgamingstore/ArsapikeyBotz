@@ -58,8 +58,8 @@ menimbang 20% → 15% → 25% lalu mengunci 30%):
 `{"28":7150,"31":13000,"32":31200,"33":58500,"34":110500,"35":273000}`
 (untung per paket: 1.650 / 3.000 / 7.200 / 13.500 / 25.500 / 63.000).
 Konsekuensi: WD min Rp 50.000 kekumpul dalam ~31x laku paket 1M.
-Menaikkan/menurunkan markup belakangan = ubah env
-`SELL_PRICES` saja, tanpa ubah kode.
+Menaikkan/menurunkan markup belakangan = ubah `SELL_PRICES` di
+wrangler.toml `[vars]` + deploy, tanpa ubah kode.
 
 ## 4. Env (Worker Secrets vs Variables)
 
@@ -69,14 +69,14 @@ Secrets (dashboard Worker → Settings → Variables → Secrets):
 - `WEBHOOK_SECRET` — secret_token Telegram (verifikasi webhook, wajib
   diset saat setWebhook; request tanpa secret yang cocok → 403).
 
-Variables (biasa, bukan secret — nilainya tidak sensitif):
-- `SELL_PRICES` — JSON map product_id → harga jual (lihat §3).
+Variables (biasa, bukan secret — nilainya tidak sensitif; PERHATIAN: variable dashboard KEHAPUS tiap git deploy — variable yang harus menetap wajib di wrangler.toml `[vars]`):
+- `SELL_PRICES` — JSON map product_id → harga jual (lihat §3), ditulis di wrangler.toml `[vars]` (BUKAN dashboard — variable dashboard kehapus tiap git deploy).
 - `API_BASE_URL` — base URL whitelabel yang dicantumkan di pesan
   kirim kunci (opsional; fallback `https://rest-api.arsgaming.ai.id/v1`).
 - `ADMIN_CONTACT` — username Telegram admin (tanpa @) untuk tombol
   Hubungi Admin; kosong = tombol tidak tampil sebagai link.
 
-Binding (dashboard, BUKAN wrangler.toml — placeholder id gagal deploy):
+Binding (ditulis di wrangler.toml — binding dashboard KEHAPUS tiap git deploy, terbukti 2026-10-29; pelajaran GatewayARS soal placeholder id tidak berlaku di sini karena id-nya id namespace asli):
 - `BOT_KV` — KV namespace bot (order + state chat).
 
 ## 5. State di KV (tidak ada data sensitif pembeli yang disimpan)
@@ -112,7 +112,7 @@ Binding (dashboard, BUKAN wrangler.toml — placeholder id gagal deploy):
 1. `BOT_TOKEN` (BotFather) — user.
 2. `RESELLER_TOKEN` (daftar reseller ArxPays) — user.
 3. `SELL_PRICES` — user putuskan markup per paket.
-4. KV namespace + bind `BOT_KV` — user di dashboard Worker.
+4. KV namespace + bind `BOT_KV` — sudah di wrangler.toml (namespace BOT_KV sudah ada; jangan pindah ke dashboard, nanti kehapus tiap deploy).
 5. Webhook: `setWebhook` ke `https://<worker>/telegram/webhook` dengan
    `secret_token` = `WEBHOOK_SECRET`; cron trigger tiap menit aktif.
 6. Verifikasi saat test live: apakah `buyer_email` wajib diisi API

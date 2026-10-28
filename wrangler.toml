@@ -2,8 +2,19 @@ name = "ars-reseller-bot"
 compatibility_date = "2026-10-01"
 main = "src/index.js"
 
-# Binding KV `BOT_KV` SENGAJA tidak ditulis di sini (placeholder id gagal
-# deploy, pelajaran dari GatewayARS). Pasang di dashboard Worker:
-# Settings → Variables → KV Namespace Bindings → Variable name BOT_KV.
+# SELL_PRICES dan binding KV BOT_KV SENGAJA ditulis di sini: pada Worker
+# yang terhubung git, wrangler deploy memakai wrangler.toml sebagai sumber
+# kebenaran — variable/binding yang hanya ada di dashboard KEHAPUS tiap
+# deploy (terbukti 2026-10-29: SELL_PRICES dan BOT_KV hilang setelah
+# deploy, bot mati). Secret tetap di dashboard (deploy tidak menyentuh
+# secret). Pelajaran GatewayARS soal placeholder id tidak berlaku di sini:
+# id di bawah adalah id namespace BOT_KV yang asli.
+[vars]
+SELL_PRICES = '{"28":7150,"31":13000,"32":31200,"33":58500,"34":110500,"35":273000}'
+
+[[kv_namespaces]]
+binding = "BOT_KV"
+id = "3de74e7f803c4d1da8a1e1aa7eda3066"
+
 [triggers]
 crons = ["* * * * *"]

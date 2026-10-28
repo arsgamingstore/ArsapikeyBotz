@@ -27,14 +27,16 @@ Semua tes pakai stub (FakeKV + stub fetch) — tanpa token asli.
 ## Deploy (oleh user, dengan kredensial sendiri)
 
 1. Buat Worker (wrangler deploy dari PC user, atau dashboard).
-2. Buat KV namespace → bind sebagai `BOT_KV` (dashboard Worker →
-   Settings → Variables → KV Namespace Bindings).
+2. Buat KV namespace → bind sebagai `BOT_KV` di `wrangler.toml`
+   (`[[kv_namespaces]]`, id namespace asli — binding dashboard
+   KEHAPUS tiap git deploy).
 3. Set Secrets: `BOT_TOKEN` (BotFather), `RESELLER_TOKEN` (daftar
    reseller ArxPays), `WEBHOOK_SECRET` (bebas, string acak panjang).
-4. Set Variables: `SELL_PRICES` (JSON, mis.
-   `{"28":8000,"31":15000}` — hanya produk yang ada di sini yang
-   dijual, dan harus di atas HPP), `ADMIN_CONTACT` (username Telegram
-   admin tanpa @, opsional).
+4. Set Variables: `SELL_PRICES` di `wrangler.toml` `[vars]` (JSON,
+   mis. `{"28":8000,"31":15000}` — hanya produk yang ada di sini yang
+   dijual, dan harus di atas HPP; variable dashboard KEHAPUS tiap
+   git deploy), `ADMIN_CONTACT` (username Telegram admin tanpa @,
+   opsional).
 5. Set webhook Telegram (ganti `<TOKEN>` dan `<WORKER_URL>`):
    `https://api.telegram.org/bot<TOKEN>/setWebhook?url=<WORKER_URL>/telegram/webhook&secret_token=<WEBHOOK_SECRET>`
 6. Pastikan cron trigger tiap menit aktif (dari `wrangler.toml`).

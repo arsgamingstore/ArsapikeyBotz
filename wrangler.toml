@@ -1,0 +1,9 @@
+name = "ars-reseller-bot"
+compatibility_date = "2026-10-01"
+main = "src/index.js"
+
+# Binding KV `BOT_KV` SENGAJA tidak ditulis di sini (placeholder id gagal
+# deploy, pelajaran dari GatewayARS). Pasang di dashboard Worker:
+# Settings → Variables → KV Namespace Bindings → Variable name BOT_KV.
+[triggers]
+crons = ["* * * * *"]

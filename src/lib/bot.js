@@ -4,8 +4,14 @@ import { PRODUCTS, catalogForSale, formatIDR, parseSellPrices } from "./catalog.
 import { createInvoice, getOrderStatus } from "./arxpay.js";
 import { mainMenuKeyboard, catalogKeyboard, confirmKeyboard, orderKeyboard } from "./telegram.js";
 
-const WELCOME =
-  "👋 Selamat datang di Bot API Key!\n\nSatu API key untuk model AI pilihan.\n\n• Pembelian baru → Beli Paket\n• Sudah order → Pesanan Saya\n• Butuh bantuan → Bantuan\n\nPilih menu di bawah:";
+// Sapaan /start + Menu Utama: personal, pakai nama depan (atau
+// @username kalau nama tidak ada).
+function welcomeMessage(from) {
+  const name =
+    [from?.first_name, from?.last_name].filter(Boolean).join(" ") ||
+    (from?.username ? `@${from.username}` : "Kak");
+  return `👋 SELAMAT DATANG, ${name}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🤖 Bot Kebutuhan AI\n\nKami Menyediakan Models Uncensored\n🤖 Token AI\n   └ 🧠 deepseek-v4.1-flash-uncensored · 🔑 glm-5.3-flash-uncensored\n\n🆘 Support: @arsgamingstore`;
+}
 
 const HELP =
   "❓ Bantuan\n\n1. Pilih Beli Paket → pilih paket → masukkan email → konfirmasi.\n2. Scan QRIS yang muncul (atau buka link pembayaran).\n3. Setelah bayar, tekan Cek Status — API key langsung dikirim ke chat ini.\n4. Pesanan Saya menampilkan semua order kamu.\n\nPembayaran diproses otomatis. Kalau ada kendala, hubungi admin.";
@@ -76,7 +82,7 @@ export async function handleUpdate(env, kv, tg, update, fetcher) {
     if (!chatId) return;
     if (text === "/start") {
       await kv.delete(stateKey(chatId));
-      await tg.sendMessage(chatId, WELCOME, mainMenuKeyboard());
+      await tg.sendMessage(chatId, welcomeMessage(msg.from), mainMenuKeyboard());
       return;
     }
     if (text === "/help") {
@@ -116,7 +122,7 @@ export async function handleUpdate(env, kv, tg, update, fetcher) {
 
     if (data === "menu:main") {
       await kv.delete(stateKey(chatId));
-      await tg.sendMessage(chatId, WELCOME, mainMenuKeyboard());
+      await tg.sendMessage(chatId, welcomeMessage(cq.from), mainMenuKeyboard());
       return;
     }
     if (data === "menu:buy") {

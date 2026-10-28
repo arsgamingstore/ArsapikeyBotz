@@ -91,13 +91,23 @@ test("katalog fail-closed: tanpa harga / harga <= HPP disembunyikan", () => {
   assert.deepEqual(parseSellPrices(JSON.stringify({ 28: "mahal" })), {});
 });
 
-test("/start mengirim welcome + menu", async () => {
+test("/start mengirim welcome personal + menu", async () => {
+  const start = (from) => ({ message: { chat: { id: CHAT }, text: "/start", from } });
   const kv = new FakeKV();
   const tg = fakeTg();
-  await handleUpdate(ENV, kv, tg, msg("/start"), stubArxpay().fetcher);
+  await handleUpdate(ENV, kv, tg, start({ first_name: "Budi", last_name: "Santoso", username: "budi123" }), stubArxpay().fetcher);
   assert.equal(tg.sent.length, 1);
-  assert.match(tg.sent[0].text, /Selamat datang/);
+  assert.match(tg.sent[0].text, /SELAMAT DATANG, Budi Santoso/);
+  assert.match(tg.sent[0].text, /Bot Kebutuhan AI/);
   assert.ok(tg.sent[0].markup.inline_keyboard.length >= 3);
+  // Tanpa nama depan → pakai @username.
+  const tg2 = fakeTg();
+  await handleUpdate(ENV, new FakeKV(), tg2, start({ username: "budi123" }), stubArxpay().fetcher);
+  assert.match(tg2.sent[0].text, /SELAMAT DATANG, @budi123/);
+  // Tanpa info pengirim sama sekali → fallback Kak.
+  const tg3 = fakeTg();
+  await handleUpdate(ENV, new FakeKV(), tg3, msg("/start"), stubArxpay().fetcher);
+  assert.match(tg3.sent[0].text, /SELAMAT DATANG, Kak/);
 });
 
 test("alur beli penuh: katalog → email → konfirmasi → invoice → QR", async () => {

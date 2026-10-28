@@ -49,6 +49,14 @@ tidak dikonfigurasi ATAU <= HPP TIDAK tampil di katalog (mencegah jual
 rugi / harga belum diputus). Harga dasar (HPP) dan profit TIDAK PERNAH
 ditampilkan ke pembeli — pembeli hanya melihat harga jual.
 
+Harga awal / LAUNCH (keputusan user 2026-10-28): markup 10% saja dulu
+(strategi buka murah buat narik pembeli, naik belakangan):
+`{"28":6050,"31":11000,"32":26400,"33":49500,"34":93500,"35":231000}`
+(untung per paket: 550 / 1.000 / 2.400 / 4.500 / 8.500 / 21.000).
+Konsekuensi: WD min Rp 50.000 kekumpulnya lebih lama (mis. ~91x laku
+paket 1M baru bisa WD). Menaikkan markup belakangan = ubah env
+`SELL_PRICES` saja, tanpa ubah kode.
+
 ## 4. Env (Worker Secrets vs Variables)
 
 Secrets (dashboard Worker → Settings → Variables → Secrets):

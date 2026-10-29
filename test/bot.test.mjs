@@ -110,6 +110,15 @@ test("/start mengirim welcome personal + menu", async () => {
   assert.match(tg3.sent[0].text, /SELAMAT DATANG, Kak/);
 });
 
+test("/caraorder mengirim teks bantuan", async () => {
+  const tg = fakeTg();
+  await handleUpdate(ENV, new FakeKV(), tg, msg("/caraorder"), stubArxpay().fetcher);
+  assert.equal(tg.sent.length, 1);
+  assert.match(tg.sent[0].text, /Bantuan/);
+  assert.match(tg.sent[0].text, /Pilih Beli Paket/);
+  assert.ok(tg.sent[0].markup.inline_keyboard.length >= 3);
+});
+
 test("alur beli penuh: katalog → email → konfirmasi → invoice → QR", async () => {
   const kv = new FakeKV();
   const tg = fakeTg();

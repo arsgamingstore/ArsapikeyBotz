@@ -89,6 +89,10 @@ export async function handleUpdate(env, kv, tg, update, fetcher) {
       await tg.sendMessage(chatId, HELP, mainMenuKeyboard());
       return;
     }
+    if (text === "/caraorder") {
+      await tg.sendMessage(chatId, HELP, mainMenuKeyboard());
+      return;
+    }
     const state = await getJson(kv, stateKey(chatId));
     if (state && state.step === "await_email") {
       if (!validEmail(text)) {

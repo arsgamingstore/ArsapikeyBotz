@@ -24,6 +24,11 @@ const HELP =
 // welcome tanpa efek (fail-soft di handler /start).
 const FIRE_EFFECT_ID = "5104841245755180586";
 
+// Bar loading ala Jstore: 10 blok, diedit berulang sampai penuh.
+function loadingBar(filled) {
+  return `🔄 Processing... ${"█".repeat(filled)}${"░".repeat(10 - filled)}`;
+}
+
 function stateKey(chatId) {
   return `chat:${chatId}:state`;
 }
@@ -139,17 +144,22 @@ export async function handleUpdate(env, kv, tg, update, fetcher) {
     if (text === "/start") {
       await kv.delete(stateKey(chatId));
       const welcome = welcomeMessage(msg.from);
-      // Loading ala Jstore: pesan loading dulu, jeda kosmetik sebentar
-      // (BUKAN fetch data — langkah API dicoret user 2026-10-29),
-      // lalu hapus dan kirim welcome pakai efek api.
-      const loadingId = await tg.sendMessage(chatId, "⏳ Memuat data...");
-      await new Promise((r) => setTimeout(r, 900));
-      if (typeof loadingId === "number" && typeof tg.deleteMessage === "function") {
-        try {
-          await tg.deleteMessage(chatId, loadingId);
-        } catch {
-          // Best-effort: kalau gagal dihapus, welcome tetap dikirim.
+      // Loading ala Jstore: kirim "Processing..." + bar 10 blok, edit
+      // berulang sampai penuh (±2 detik), lalu jadi
+      // "✅ Data berhasil dimuat!" — pesan ini DIBIARKAN, tidak dihapus.
+      // Tanpa fetch API (langkah API dicoret user 2026-10-29).
+      // Edit best-effort (kena flood-control pun flow tetap jalan).
+      const loadingId = await tg.sendMessage(chatId, loadingBar(0));
+      if (typeof loadingId === "number" && typeof tg.editMessageText === "function") {
+        for (const filled of [2, 4, 6, 8, 10]) {
+          await new Promise((r) => setTimeout(r, 400));
+          try {
+            await tg.editMessageText(chatId, loadingId, loadingBar(filled));
+          } catch {}
         }
+        try {
+          await tg.editMessageText(chatId, loadingId, "✅ Data berhasil dimuat!");
+        } catch {}
       }
       const sent = await tg.sendMessage(chatId, welcome, mainMenuKeyboard(), FIRE_EFFECT_ID);
       if (!sent) await tg.sendMessage(chatId, welcome, mainMenuKeyboard());

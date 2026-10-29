@@ -26,18 +26,18 @@ class FakeKV {
 
 function fakeTg() {
   const sent = [];
-  const deleted = [];
+  const edited = [];
   let nextId = 100;
   return {
     sent,
-    deleted,
+    edited,
     async sendMessage(chatId, text, markup, effectId) {
       const id = nextId++;
       sent.push({ kind: "message", chatId, text, markup, effectId, id });
       return id;
     },
-    async deleteMessage(chatId, messageId) {
-      deleted.push({ chatId, messageId });
+    async editMessageText(chatId, messageId, text) {
+      edited.push({ chatId, messageId, text });
       return true;
     },
     async sendPhoto(chatId, photo, caption) {
@@ -117,10 +117,14 @@ test("/start mengirim welcome personal + menu", async () => {
   const tg = fakeTg();
   await handleUpdate(ENV, kv, tg, start({ first_name: "Budi", last_name: "Santoso", username: "budi123" }), stubArxpay().fetcher);
   assert.equal(tg.sent.length, 2);
-  // Pesan pertama = loading, dihapus, lalu welcome pakai efek api.
-  assert.match(tg.sent[0].text, /Memuat/);
+  // Pesan pertama = loading bar, diedit sampai penuh lalu jadi
+  // "Data berhasil dimuat!" (dibiarkan, tidak dihapus); pesan kedua =
+  // welcome pakai efek api.
+  assert.equal(tg.sent[0].text, "🔄 Processing... ░░░░░░░░░░");
   assert.equal(tg.sent[0].effectId, undefined);
-  assert.deepEqual(tg.deleted, [{ chatId: CHAT, messageId: tg.sent[0].id }]);
+  assert.equal(tg.edited.length, 6);
+  assert.equal(tg.edited[5].text, "✅ Data berhasil dimuat!");
+  assert.equal(tg.edited[5].messageId, tg.sent[0].id);
   assert.equal(tg.sent[1].effectId, "5104841245755180586");
   assert.match(tg.sent[1].text, /SELAMAT DATANG, Budi Santoso/);
   assert.match(tg.sent[1].text, /Bot Kebutuhan AI/);
@@ -151,16 +155,34 @@ test("/start tetap kirim welcome tanpa efek kalau Telegram menolak effect id", a
     },
   };
   await handleUpdate(ENV, new FakeKV(), tg, { message: { chat: { id: CHAT }, text: "/start", from: { first_name: "Budi" } } }, stubArxpay().fetcher);
-  // Stub ini tanpa deleteMessage (objek tg minimal) — penghapusan loading
+  // Stub ini tanpa editMessageText (objek tg minimal) — animasi bar
   // di-skip, tapi urutan pesan tetap: loading, welcome+efek (gagal), welcome.
   assert.equal(sent.length, 3);
-  assert.match(sent[0].text, /Memuat/);
+  assert.equal(sent[0].text, "🔄 Processing... ░░░░░░░░░░");
   assert.equal(sent[1].effectId, "5104841245755180586");
   assert.equal(sent[2].effectId, undefined);
   assert.match(sent[2].text, /SELAMAT DATANG, Budi/);
 });
 
-test("/start tetap kirim welcome walau hapus loading gagal", async () => {
+test("/start loading: bar terisi bertahap lalu jadi Data berhasil dimuat", async () => {
+  const tg = fakeTg();
+  await handleUpdate(ENV, new FakeKV(), tg, { message: { chat: { id: CHAT }, text: "/start", from: { first_name: "Budi" } } }, stubArxpay().fetcher);
+  assert.deepEqual(
+    tg.edited.map((e) => e.text),
+    [
+      "🔄 Processing... ██░░░░░░░░",
+      "🔄 Processing... ████░░░░░░",
+      "🔄 Processing... ██████░░░░",
+      "🔄 Processing... ████████░░",
+      "🔄 Processing... ██████████",
+      "✅ Data berhasil dimuat!",
+    ]
+  );
+  assert.ok(tg.edited.every((e) => e.messageId === tg.sent[0].id));
+  assert.equal(tg.sent[1].effectId, "5104841245755180586");
+});
+
+test("/start tetap kirim welcome walau edit loading gagal", async () => {
   const sent = [];
   const tg = {
     sent,
@@ -168,8 +190,8 @@ test("/start tetap kirim welcome walau hapus loading gagal", async () => {
       sent.push({ chatId, text, markup, effectId });
       return 42;
     },
-    async deleteMessage() {
-      throw new Error("delete boom");
+    async editMessageText() {
+      throw new Error("edit boom");
     },
     async sendPhoto() {
       return true;

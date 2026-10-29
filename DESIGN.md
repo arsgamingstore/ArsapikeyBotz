@@ -11,7 +11,7 @@ Jangan dicampur dengan key gateway River (provider global gateway).
 Bot Telegram reseller ArxPays via API (docs: arxpay.my.id/docs/reseller):
 
 - `/start` + menu: Beli Paket, Pesanan Saya, Bantuan, Hubungi Admin.
-- `/start` ala Jstore: pesan "⏳ Memuat data..." dulu, jeda kosmetik sebentar, lalu dihapus dan diganti welcome personal + menu pakai efek api (fail-soft tanpa efek kalau ditolak). Loading ini kosmetik, TANPA fetch API (langkah API dicoret user 2026-10-29).
+- `/start` ala Jstore: kirim "🔄 Processing..." + bar 10 blok, diedit berulang sampai penuh (±2 detik), lalu jadi "✅ Data berhasil dimuat!" (dibiarkan, tidak dihapus), terus welcome personal + menu pakai efek api (fail-soft tanpa efek kalau ditolak). Loading ini kosmetik, TANPA fetch API (langkah API dicoret user 2026-10-29); edit best-effort (kena flood-control pun flow tetap jalan).
 - Beli Paket → katalog (hanya produk yang harga jualnya dikonfigurasi)
   → pilih paket → bot minta email → konfirmasi (paket + harga jual)
   → create-invoice → tampilkan QR image + pay_url + order_ref +

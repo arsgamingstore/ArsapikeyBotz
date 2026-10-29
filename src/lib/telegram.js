@@ -31,8 +31,8 @@ export function tgApi(token, doFetch = fetch) {
       if (messageEffectId) body.message_effect_id = messageEffectId;
       return postMessageId("sendMessage", body);
     },
-    deleteMessage(chatId, messageId) {
-      return post("deleteMessage", { chat_id: chatId, message_id: messageId });
+    editMessageText(chatId, messageId, text) {
+      return post("editMessageText", { chat_id: chatId, message_id: messageId, text });
     },
     sendPhoto(chatId, photo, caption) {
       return post("sendPhoto", { chat_id: chatId, photo, caption: caption || undefined });

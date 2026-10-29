@@ -2,6 +2,7 @@
 // Dipakai Worker (src/index.js) dan tes (test/bot.test.mjs).
 import { PRODUCTS, catalogForSale, formatIDR, parseSellPrices } from "./catalog.js";
 import { createInvoice, getOrderStatus } from "./arxpay.js";
+import { createGatewayKey, gatewayOrigin } from "./gateway.js";
 import { mainMenuKeyboard, catalogKeyboard, confirmKeyboard, orderKeyboard } from "./telegram.js";
 
 // Sapaan /start + Menu Utama: personal, pakai nama depan (atau
@@ -71,12 +72,60 @@ function productById(id) {
   return PRODUCTS.find((p) => p.id === id) || null;
 }
 
-// Pesan kirim kunci: selalu cantumkan base URL + model supaya pembeli
-// langsung tahu pakainya di mana. Base URL dari env API_BASE_URL,
-// fallback ke domain whitelabel.
-function keyDeliveryMessage(st, fallbackName, env) {
-  const baseUrl = String(env.API_BASE_URL || "https://rest-api.arsgaming.ai.id/v1").replace(/\/$/, "");
-  return `✅ Pembayaran berhasil!\n\nProduk: ${st.productName || fallbackName}\n\nAPI key kamu:\n${st.apiKey}\n\nBase URL:\n${baseUrl}\n\nModel:\n• deepseek-v4.1-flash-uncensored\n• glm-5.3-flash-uncensored\n\nSimpan key ini baik-baik. Key tidak disimpan di bot — kalau hilang, hubungi admin.`;
+// Model yang dijual bot (ArxPays flagship). Daftar ini dipakai di DUA
+// tempat sekaligus — request bikin key ke gateway DAN pesan kirim kunci —
+// supaya keduanya tidak pernah beda.
+const HYBRID_MODELS = ["deepseek-v4.1-flash-uncensored", "glm-5.3-flash-uncensored"];
+
+// Kuota gateway = token paket (katalog "1M" -> 1000000). Gagal parse =
+// jangan bikin key dengan kuota salah.
+function packageTokens(product) {
+  const n = parseInt(product && product.tokens, 10);
+  return Number.isInteger(n) && n > 0 ? n * 1000000 : null;
+}
+
+// Pesan kirim kunci HYBRID: hanya ca- key + base URL gateway + model.
+// Nama produk dari katalog bot (bukan nama produk ArxPays), dan key arx
+// TIDAK PERNAH muncul di chat.
+function keyDeliveryMessage(caKey, productName, env) {
+  const baseUrl = `${gatewayOrigin(env)}/v1`;
+  return `✅ Pembayaran berhasil!\n\nProduk: ${productName}\n\nAPI key kamu:\n${caKey}\n\nBase URL:\n${baseUrl}\n\nModel:\n${HYBRID_MODELS.map((m) => `• ${m}`).join("\n")}\n\nSimpan key ini baik-baik. Key tidak disimpan di bot — kalau hilang, hubungi admin.`;
+}
+
+// Satu-satunya jalur pengiriman key: arx key ditempel ke gateway, buyer
+// cuma terima ca- key. Kalau gateway gagal, order TIDAK ditandai
+// delivered — sweep / Cek Status akan retry dengan mengambil ulang arx
+// key dari status ArxPays (bot TIDAK PERNAH menyimpan arx key).
+// TIDAK ADA fallback kirim key arx mentah, dalam kondisi apa pun.
+async function deliverHybridKey(env, kv, tg, fetcher, order, arxKey) {
+  const p = productById(order.productId);
+  const quota = packageTokens(p);
+  if (!quota) return { ok: false, error: "unknown package tokens" };
+  // Baca ulang: kalau jalur lain sudah mengirim di sela waktu, jangan
+  // bikin ca- key kedua.
+  const fresh = await getJson(kv, orderKey(order.ref));
+  if (fresh && fresh.delivered) return { ok: true, already: true };
+  const gw = await createGatewayKey(fetcher, env, {
+    name: p ? p.name : order.productId,
+    quota_tokens: quota,
+    upstream_api_key: arxKey,
+    models: HYBRID_MODELS,
+  });
+  if (!gw.ok) {
+    order.status = "paid"; // lunas, tapi key belum terbit
+    order.delivered = false;
+    await putJson(kv, orderKey(order.ref), order);
+    return { ok: false, error: gw.error };
+  }
+  order.status = "paid";
+  order.delivered = true;
+  await putJson(kv, orderKey(order.ref), order);
+  await tg.sendMessage(
+    order.chatId,
+    keyDeliveryMessage(gw.key, p ? p.name : order.productId, env),
+    mainMenuKeyboard(),
+  );
+  return { ok: true };
 }
 
 export async function handleUpdate(env, kv, tg, update, fetcher) {
@@ -261,15 +310,18 @@ export async function handleUpdate(env, kv, tg, update, fetcher) {
           await tg.sendMessage(chatId, "Pembayaran lunas tapi key belum tersedia. Tekan Cek Status lagi sesaat.", orderKeyboard(ref));
           return;
         }
-        order.status = "paid";
-        order.delivered = true;
-        await putJson(kv, orderKey(ref), order);
-        const p = productById(order.productId);
-        await tg.sendMessage(
-          chatId,
-          keyDeliveryMessage(st, p ? p.name : order.productId, env),
-          mainMenuKeyboard(),
-        );
+        const r = await deliverHybridKey(env, kv, tg, fetcher, order, st.apiKey);
+        if (!r.ok) {
+          await tg.sendMessage(chatId, "Pembayaran lunas, tapi key gateway sedang disiapkan. Tekan Cek Status lagi sesaat.", orderKeyboard(ref));
+          return;
+        }
+        if (r.already) {
+          await tg.sendMessage(
+            chatId,
+            "API key pesanan ini sudah pernah dikirim ke chat ini. Cek riwayat chat di atas, atau hubungi admin kalau hilang.",
+            mainMenuKeyboard(),
+          );
+        }
         return;
       }
       await tg.sendMessage(chatId, "Belum lunas. Setelah scan QRIS, tekan Cek Status lagi.", orderKeyboard(ref));
@@ -279,24 +331,19 @@ export async function handleUpdate(env, kv, tg, update, fetcher) {
   }
 }
 
-// Cron: sapu order pending → kalau PAID, kirim key (idempotent via delivered).
+// Cron: sapu order yang belum delivered → kalau PAID, tempel ke gateway
+// dan kirim ca- key. Order lunas-tapi-key-gagal TIDAK dilewati (status
+// "paid" + delivered false tetap disapu menit berikutnya, sampai key
+// terbit — arx key diambil ulang dari status ArxPays tiap sapuan).
 export async function sweepPendingOrders(env, kv, tg, fetcher) {
   const listed = await kv.list({ prefix: "order:" });
   for (const k of listed.keys || []) {
     const order = await getJson(kv, k.name);
-    if (!order || order.status === "paid" || order.delivered) continue;
+    if (!order || order.delivered) continue;
     try {
       const st = await getOrderStatus(fetcher, order.ref);
       if (!st.ok || st.status !== "PAID" || !st.apiKey) continue;
-      order.status = "paid";
-      order.delivered = true;
-      await putJson(kv, k.name, order);
-      const p = productById(order.productId);
-      await tg.sendMessage(
-        order.chatId,
-        keyDeliveryMessage(st, p ? p.name : order.productId, env),
-        mainMenuKeyboard(),
-      );
+      await deliverHybridKey(env, kv, tg, fetcher, order, st.apiKey);
     } catch {
       // Lewati order ini di sapuan berikutnya; jangan gagalkan seluruh sweep.
     }

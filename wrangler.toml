@@ -11,6 +11,10 @@ main = "src/index.js"
 # id di bawah adalah id namespace BOT_KV yang asli.
 [vars]
 SELL_PRICES = '{"28":7150,"31":13000,"32":31200,"33":58500,"34":110500,"35":273000}'
+# Origin gateway untuk alur hybrid (buyer base URL = GATEWAY_URL + /v1).
+# BOT_SERVICE_KEY adalah secret di dashboard (bukan di sini) — nilainya
+# harus SAMA dengan BOT_SERVICE_KEY di Pages project gateway.
+GATEWAY_URL = "https://cloud-arsgamingstore.pages.dev"
 
 [[kv_namespaces]]
 binding = "BOT_KV"

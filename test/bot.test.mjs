@@ -42,12 +42,24 @@ function fakeTg() {
   };
 }
 
-// Stub ArxPays: create-invoice selalu sukses; status order bisa diatur
-// per ref lewat `statusByRef`.
-function stubArxpay(statusByRef = {}) {
+// Stub ArxPays + gateway: create-invoice selalu sukses; status order bisa
+// diatur per ref lewat `statusByRef`; `gateway.failTimes` = berapa kali
+// pertama create ca- key gagal (lalu sukses).
+function stubArxpay(statusByRef = {}, gateway = {}) {
   const calls = [];
+  let gwFailsLeft = gateway.failTimes || 0;
   const fetcher = async (url, opts) => {
     calls.push({ url, opts });
+    if (url.includes("/api/bot/keys")) {
+      if (gwFailsLeft > 0) {
+        gwFailsLeft--;
+        return { ok: false, status: 500, json: async () => ({ error: { message: "gateway boom" } }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({ id: "abc123", name: "Paket 1M Token", key: "ca-testkey123", quota_tokens: 1000000, quota_type: "package" }),
+      };
+    }
     if (url.includes("create-invoice")) {
       return {
         ok: true,
@@ -75,7 +87,7 @@ function stubArxpay(statusByRef = {}) {
   return { fetcher, calls };
 }
 
-const ENV = { RESELLER_TOKEN: "test-token", SELL_PRICES: JSON.stringify({ 28: 8000 }), ADMIN_CONTACT: "testadmin" };
+const ENV = { RESELLER_TOKEN: "test-token", BOT_SERVICE_KEY: "bot-test-secret", SELL_PRICES: JSON.stringify({ 28: 8000 }), ADMIN_CONTACT: "testadmin" };
 const CHAT = 12345;
 const msg = (text) => ({ message: { chat: { id: CHAT }, text } });
 const cq = (data) => ({ callback_query: { id: "cq1", message: { chat: { id: CHAT } }, data } });
@@ -182,22 +194,36 @@ test("beli produk tanpa harga ditolak", async () => {
   assert.equal(await kv.get(`chat:${CHAT}:state`), null);
 });
 
-test("cek status PAID kirim key sekali saja (idempotent)", async () => {
+test("cek status PAID kirim ca- key sekali saja, arx key tidak pernah muncul", async () => {
   const kv = new FakeKV();
   const tg = fakeTg();
-  const { fetcher } = stubArxpay({ RSLTEST123: { status: "PAID", api_key: "arx-live-TESTKEY", product_name: "Paket 1 Juta Token" } });
+  const { fetcher, calls } = stubArxpay({ RSLTEST123: { status: "PAID", api_key: "arx-live-TESTKEY", product_name: "ArxPays LLM [1M Token]" } });
   await kv.put(
     "order:RSLTEST123",
     JSON.stringify({ ref: "RSLTEST123", chatId: CHAT, productId: 28, sellPrice: 8000, status: "pending", delivered: false, createdAt: 1 }),
   );
   await handleUpdate(ENV, kv, tg, cq("check:RSLTEST123"), fetcher);
-  assert.ok(tg.sent.some((s) => s.text && s.text.includes("arx-live-TESTKEY")));
+  const gw = calls.find((c) => c.url.includes("/api/bot/keys"));
+  assert.ok(gw);
+  assert.equal(gw.opts.headers.Authorization, "Bearer bot-test-secret");
+  const body = JSON.parse(gw.opts.body);
+  assert.equal(body.quota_tokens, 1000000);
+  assert.equal(body.upstream_api_key, "arx-live-TESTKEY");
+  assert.deepEqual(body.models, ["deepseek-v4.1-flash-uncensored", "glm-5.3-flash-uncensored"]);
+  const delivered = tg.sent.find((s) => s.text && s.text.includes("ca-testkey123"));
+  assert.ok(delivered);
+  assert.ok(!delivered.text.includes("arx-live-TESTKEY"));
+  assert.ok(!delivered.text.includes("ArxPays"));
+  assert.ok(delivered.text.includes("Paket 1M Token"));
+  assert.ok(delivered.text.includes("https://cloud-arsgamingstore.pages.dev/v1\n"));
+  assert.ok(!JSON.stringify(tg.sent).includes("arx-live-TESTKEY"));
   const saved = JSON.parse(await kv.get("order:RSLTEST123"));
   assert.equal(saved.delivered, true);
   assert.equal(saved.status, "paid");
+  // Cek kedua: tidak kirim ulang, tidak bikin key kedua.
   tg.sent.length = 0;
   await handleUpdate(ENV, kv, tg, cq("check:RSLTEST123"), fetcher);
-  assert.ok(!tg.sent.some((s) => s.text && s.text.includes("arx-live-TESTKEY")));
+  assert.equal(calls.filter((c) => c.url.includes("/api/bot/keys")).length, 1);
   assert.match(tg.sent.at(-1).text, /sudah pernah dikirim/);
 });
 
@@ -225,39 +251,60 @@ test("pesanan saya menampilkan order chat itu saja", async () => {
   assert.doesNotMatch(tg.sent.at(-1).text, /ref: B/);
 });
 
-test("sweep cron mengirim key order PAID dan melewati yang belum lunas", async () => {
+test("sweep cron mengirim ca- key order PAID dan melewati yang belum lunas", async () => {
   const kv = new FakeKV();
   const tg = fakeTg();
-  const { fetcher } = stubArxpay({ PAID1: { status: "PAID", api_key: "arx-live-SWEEP", product_name: "Paket 1M Token" }, PEND1: { status: "PENDING" } });
+  const { fetcher } = stubArxpay({ PAID1: { status: "PAID", api_key: "arx-live-SWEEP", product_name: "ArxPays LLM" }, PEND1: { status: "PENDING" } });
   await kv.put("order:PAID1", JSON.stringify({ ref: "PAID1", chatId: CHAT, productId: 28, sellPrice: 8000, status: "pending", delivered: false, createdAt: 1 }));
   await kv.put("order:PEND1", JSON.stringify({ ref: "PEND1", chatId: CHAT, productId: 28, sellPrice: 8000, status: "pending", delivered: false, createdAt: 2 }));
   await sweepPendingOrders(ENV, kv, tg, fetcher);
-  assert.ok(tg.sent.some((s) => s.text && s.text.includes("arx-live-SWEEP")));
+  assert.ok(tg.sent.some((s) => s.text && s.text.includes("ca-testkey123")));
+  assert.ok(!JSON.stringify(tg.sent).includes("arx-live-SWEEP"));
   assert.equal(JSON.parse(await kv.get("order:PAID1")).delivered, true);
   assert.equal(JSON.parse(await kv.get("order:PEND1")).delivered, false);
 });
 
-test("pesan kirim kunci mencantumkan base URL + model", async () => {
-  const { fetcher } = stubArxpay({ RSLURL1: { status: "PAID", api_key: "arx-live-URL1", product_name: "Paket 1M Token" } });
+test("cek status PAID tapi gateway gagal → tidak delivered, retry berhasil", async () => {
+  const kv = new FakeKV();
+  const tg = fakeTg();
+  const { fetcher, calls } = stubArxpay({ RSLFAIL1: { status: "PAID", api_key: "arx-live-FAIL1", product_name: "ArxPays LLM" } }, { failTimes: 1 });
+  await kv.put("order:RSLFAIL1", JSON.stringify({ ref: "RSLFAIL1", chatId: CHAT, productId: 28, sellPrice: 8000, status: "pending", delivered: false, createdAt: 1 }));
+  await handleUpdate(ENV, kv, tg, cq("check:RSLFAIL1"), fetcher);
+  assert.match(tg.sent.at(-1).text, /sedang disiapkan/);
+  assert.ok(!JSON.stringify(tg.sent).includes("arx-live-FAIL1"));
+  const saved = JSON.parse(await kv.get("order:RSLFAIL1"));
+  assert.equal(saved.status, "paid");
+  assert.equal(saved.delivered, false);
+  // Retry (sweep): arx key diambil ulang dari status, gateway sukses.
+  tg.sent.length = 0;
+  await sweepPendingOrders(ENV, kv, tg, fetcher);
+  assert.ok(tg.sent.some((s) => s.text && s.text.includes("ca-testkey123")));
+  assert.equal(JSON.parse(await kv.get("order:RSLFAIL1")).delivered, true);
+  assert.equal(calls.filter((c) => c.url.includes("/api/bot/keys")).length, 2);
+});
+
+test("pesan kirim kunci memakai base URL gateway, bukan whitelabel", async () => {
+  const { fetcher } = stubArxpay({ RSLURL1: { status: "PAID", api_key: "arx-live-URL1", product_name: "ArxPays LLM" } });
   const mkOrder = () =>
     JSON.stringify({ ref: "RSLURL1", chatId: CHAT, productId: 28, sellPrice: 7150, status: "pending", delivered: false, createdAt: 1 });
-  // Tanpa API_BASE_URL → fallback domain whitelabel.
+  // Tanpa GATEWAY_URL → fallback Pages.
   const kv = new FakeKV();
   const tg = fakeTg();
   await kv.put("order:RSLURL1", mkOrder());
   await handleUpdate(ENV, kv, tg, cq("check:RSLURL1"), fetcher);
-  const msg = tg.sent.find((s) => s.text && s.text.includes("arx-live-URL1")).text;
-  assert.ok(msg.includes("https://rest-api.arsgaming.ai.id/v1\n"));
+  const msg = tg.sent.find((s) => s.text && s.text.includes("ca-testkey123")).text;
+  assert.ok(msg.includes("https://cloud-arsgamingstore.pages.dev/v1\n"));
+  assert.ok(!msg.includes("rest-api.arsgaming.ai.id"));
+  assert.ok(!msg.includes("arx-live-URL1"));
   assert.ok(msg.includes("deepseek-v4.1-flash-uncensored"));
   assert.ok(msg.includes("glm-5.3-flash-uncensored"));
-  // Dengan API_BASE_URL → pakai env (slash akhir dipangkas), bukan fallback.
+  // Dengan GATEWAY_URL → pakai env (slash akhir dipangkas) + /v1.
   const kv2 = new FakeKV();
   const tg2 = fakeTg();
   await kv2.put("order:RSLURL1", mkOrder());
-  await handleUpdate({ ...ENV, API_BASE_URL: "https://api.contoh.id/v1/" }, kv2, tg2, cq("check:RSLURL1"), fetcher);
-  const msg2 = tg2.sent.find((s) => s.text && s.text.includes("arx-live-URL1")).text;
+  await handleUpdate({ ...ENV, GATEWAY_URL: "https://api.contoh.id/" }, kv2, tg2, cq("check:RSLURL1"), fetcher);
+  const msg2 = tg2.sent.find((s) => s.text && s.text.includes("ca-testkey123")).text;
   assert.ok(msg2.includes("https://api.contoh.id/v1\n"));
-  assert.ok(!msg2.includes("rest-api.arsgaming.ai.id"));
 });
 
 test("verifikasi webhook secret", () => {

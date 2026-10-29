@@ -1,6 +1,7 @@
 // Entry Worker: webhook Telegram + cron sapu order.
-// Binding KV `BOT_KV` dipasang di dashboard (BUKAN wrangler.toml —
-// placeholder id gagal deploy, pelajaran dari GatewayARS).
+// Binding KV `BOT_KV` dan semua [vars] WAJIB di wrangler.toml: pada Worker
+// yang terhubung git, deploy menghapus variable/binding yang hanya ada di
+// dashboard (terbukti 2026-10-29). Secret tetap di dashboard.
 import { handleUpdate, sweepPendingOrders } from "./lib/bot.js";
 import { tgApi } from "./lib/telegram.js";
 

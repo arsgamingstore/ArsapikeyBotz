@@ -16,6 +16,13 @@ function welcomeMessage(from) {
 const HELP =
   "❓ Bantuan\n\n1. Pilih Beli Paket → pilih paket → masukkan email → konfirmasi.\n2. Scan QRIS yang muncul (atau buka link pembayaran).\n3. Setelah bayar, tekan Cek Status — API key langsung dikirim ke chat ini.\n4. Pesanan Saya menampilkan semua order kamu.\n\nPembayaran diproses otomatis. Kalau ada kendala, hubungi admin.";
 
+// ID efek api Telegram (message_effect_id, khusus private chat).
+// Dikonfirmasi dari 2 sumber independen: daftar efek Botmother dan
+// contoh Laravel Telegram — keduanya: 🔥 = 5104841245755180586.
+// Efek itu kosmetik: kalau Telegram menolak ID ini, /start tetap kirim
+// welcome tanpa efek (fail-soft di handler /start).
+const FIRE_EFFECT_ID = "5104841245755180586";
+
 function stateKey(chatId) {
   return `chat:${chatId}:state`;
 }
@@ -82,10 +89,9 @@ export async function handleUpdate(env, kv, tg, update, fetcher) {
     if (!chatId) return;
     if (text === "/start") {
       await kv.delete(stateKey(chatId));
-      // Pesan satu emoji → aplikasi Telegram memutar efek fullscreen-nya
-      // (🔥 = semburan api), sama seperti animasi di bot contoh.
-      await tg.sendMessage(chatId, "🔥");
-      await tg.sendMessage(chatId, welcomeMessage(msg.from), mainMenuKeyboard());
+      const welcome = welcomeMessage(msg.from);
+      const sent = await tg.sendMessage(chatId, welcome, mainMenuKeyboard(), FIRE_EFFECT_ID);
+      if (!sent) await tg.sendMessage(chatId, welcome, mainMenuKeyboard());
       return;
     }
     if (text === "/help") {

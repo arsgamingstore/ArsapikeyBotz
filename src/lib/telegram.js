@@ -12,9 +12,10 @@ export function tgApi(token, doFetch = fetch) {
     return res.ok;
   }
   return {
-    sendMessage(chatId, text, replyMarkup) {
+    sendMessage(chatId, text, replyMarkup, messageEffectId) {
       const body = { chat_id: chatId, text };
       if (replyMarkup) body.reply_markup = replyMarkup;
+      if (messageEffectId) body.message_effect_id = messageEffectId;
       return post("sendMessage", body);
     },
     sendPhoto(chatId, photo, caption) {

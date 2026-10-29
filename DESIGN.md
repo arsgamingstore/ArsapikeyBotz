@@ -1,8 +1,10 @@
 # DESIGN.md — ars-reseller-bot (Telegram reseller bot, Workers webhook)
 
-Status: v1 DALAM PEMBANGUNAN (2026-10-28). Bukan bagian dari gateway
-Pages (cloud-arsgamingstore) — ini REL TERPISAH: bot ini menjual key
-ArxPays (gateway mereka), bukan key gateway River user. Jangan dicampur.
+Status: LIVE sejak 2026-10-29 (jualan nyata pertama 01:49). Rel BAYAR
+tetap ArxPays (QRIS + modal nol + markup 30%); sejak 2026-10-29
+pengiriman pakai alur hybrid (§9): pembeli terima key `ca-...` dari
+ArsRouter Proxy (cloud-arsgamingstore), bukan key ArxPays mentah.
+Jangan dicampur dengan key gateway River (provider global gateway).
 
 ## 1. Yang dibangun (v1)
 
@@ -14,16 +16,20 @@ Bot Telegram reseller ArxPays via API (docs: arxpay.my.id/docs/reseller):
   → create-invoice → tampilkan QR image + pay_url + order_ref +
   tombol "Cek Status".
 - Cek Status (tombol, on-demand) → GET order status → kalau PAID dan
-  belum pernah dikirim: kirim api_key ke pembeli, tandai delivered.
+  belum pernah dikirim: buat key `ca-...` via gateway (§9), kirim key
+  itu ke pembeli, tandai delivered. Kalau gateway gagal: order tetap
+  "lunas, key disiapkan" (delivered false) — retry via sweep / Cek
+  Status berikutnya; key ArxPays mentah TIDAK PERNAH dikirim.
   Kalau sudah delivered: jangan kirim ulang (key ada di riwayat chat
   pembeli; kalau hilang, arahkan ke Hubungi Admin).
 - Pesanan Saya → daftar order chat itu (produk, harga jual, status)
   + tombol Cek Status untuk yang masih pending.
 - Cron tiap menit → sapu order pending → kalau PAID, kirim key
   otomatis (cadangan kalau pembeli lupa tekan Cek Status).
-- Pesan kirim kunci selalu mencantumkan Base URL + 2 model
-  (deepseek-v4.1-flash-uncensored, glm-5.3-flash-uncensored) supaya
-  pembeli langsung tahu pakainya di mana (lihat `API_BASE_URL` §4).
+- Pesan kirim kunci (alur hybrid §9) mencantumkan key `ca-...` +
+  Base URL gateway + 2 model (deepseek-v4.1-flash-uncensored,
+  glm-5.3-flash-uncensored) supaya pembeli langsung tahu pakainya di
+  mana. Key ArxPays mentah TIDAK PERNAH muncul di chat.
 
 ## 2. Adaptasi jujur: polling 3 detik docs TIDAK BISA di Workers
 
@@ -68,11 +74,19 @@ Secrets (dashboard Worker → Settings → Variables → Secrets):
 - `RESELLER_TOKEN` — X-Reseller-Token ArxPays (daftar reseller dulu).
 - `WEBHOOK_SECRET` — secret_token Telegram (verifikasi webhook, wajib
   diset saat setWebhook; request tanpa secret yang cocok → 403).
+- `BOT_SERVICE_KEY` — kredensial bot ke gateway (POST /api/bot/keys
+  saja, bukan ADMIN_KEY). WAJIB SAMA nilainya dengan BOT_SERVICE_KEY
+  di Pages project gateway (secret di kedua tempat). Dibuat sendiri
+  oleh user (string acak 32+ karakter), TIDAK PERNAH lewat chat.
 
 Variables (biasa, bukan secret — nilainya tidak sensitif; PERHATIAN: variable dashboard KEHAPUS tiap git deploy — variable yang harus menetap wajib di wrangler.toml `[vars]`):
 - `SELL_PRICES` — JSON map product_id → harga jual (lihat §3), ditulis di wrangler.toml `[vars]` (BUKAN dashboard — variable dashboard kehapus tiap git deploy).
-- `API_BASE_URL` — base URL whitelabel yang dicantumkan di pesan
-  kirim kunci (opsional; fallback `https://rest-api.arsgaming.ai.id/v1`).
+- `GATEWAY_URL` — origin ArsRouter Proxy untuk alur hybrid (buyer
+  base URL = GATEWAY_URL + `/v1`), ditulis di wrangler.toml `[vars]`
+  (fallback kode = `https://cloud-arsgamingstore.pages.dev`).
+- `API_BASE_URL` — TIDAK LAGI DIPAKAI sejak alur hybrid (dulu base URL
+  whitelabel di pesan kirim kunci). Boleh dihapus dari dashboard;
+  dibiarkan pun tidak berpengaruh.
 - `ADMIN_CONTACT` — username Telegram admin (tanpa @) untuk tombol
   Hubungi Admin; kosong = tombol tidak tampil sebagai link.
 
@@ -121,3 +135,141 @@ Binding (ditulis di wrangler.toml — binding dashboard KEHAPUS tiap git deploy,
 7. Repo GitHub + deploy: user buat repo kosong + pasang deploy key
    (pola sama seperti cloud-arsgamingstore) ATAU deploy dari PC user
    dengan kredensial sendiri. Kode v1 ini belum di-push ke mana-mana.
+
+## 9. Alur hybrid (DIBANGUN 2026-10-29, LIVE — gateway 7e4423f, bot 89fd7fa): key ArxPays ditempel ke ArsRouter Proxy → key ca-
+
+Ide user (2026-10-29): pembeli TETAP bayar lewat rel ArxPays (QRIS
++ modal nol + markup 30% tidak berubah), tapi key yang diterima pembeli
+BUKAN key ArxPays mentah — melainkan key `ca-...` buatan ArsRouter
+Proxy yang "ditempel" ke key ArxPays itu. Pembeli tidak pernah melihat
+`arx-live-`, tidak pernah menyentuh `arxpay.my.id`, tidak pernah
+mendapat nama produk "ArxPays LLM". Ini menyelesaikan keluhan "dapur
+ke spil" dengan cara memiliki produk (gateway + key + toko sendiri),
+bukan dengan menyembunyikan upstream. Rel ArxPays tetap hidup; ini
+BUKAN penggantian rel bayar (sketsa "key sendiri lepas dari ArxPays"
+yang lama sudah tidak berlaku — sketsa itu butuh rel bayar baru).
+
+### Implementasi (2026-10-29)
+
+- Gateway (`cloud-arsgamingstore`): record key `ca-...` punya field
+  `upstream` (baseUrl allowlist: `https://arxpay.my.id` /
+  `https://rest-api.arsgaming.ai.id`, apiKey, models) + `quota_type`
+  (`package` = tidak reset bulanan; `monthly` = reset seperti dulu).
+  Chat dengan key hybrid HANYA ke upstream-nya (model River → 404
+  untuk key itu). `/v1/models` dengan key hybrid menampilkan model
+  upstream dengan `owned_by: "ArsRouter Proxy"`. Endpoint
+  `POST /api/bot/keys` (auth `BOT_SERVICE_KEY`) membuat key paket;
+  admin path mengabaikan field upstream (tidak bisa diselundupkan).
+- Bot: `src/lib/gateway.js` (client gateway) + `deliverHybridKey`
+  di `bot.js` (satu-satunya jalur kirim key). Retry = ambil ulang
+  arx key dari status ArxPays tiap percobaan (bot TIDAK menyimpan arx
+  key); sweep TIDAK lagi melewati order `status: "paid"` yang belum
+  delivered.
+- Tes: gateway 13/13, bot 13/13 (termasuk: hybrid routing, kuota
+  paket tidak reset, masking owned_by, gating kredensial bot,
+  allowlist upstream, tidak ada bocor key di response/list, retry
+  gagal → sukses).
+- Keterbatasan yang diketahui: Cek Status dan sweep yang berjalan
+  BERSAMAAN persis di order yang baru PAID bisa membuat 2 key `ca-...`
+  untuk satu order (baca-ubah-tulis KV tidak atomik; re-read
+  sebelum create mempersempit jendela tapi tidak menutupnya total).
+  Dampak dibatasi: kedua key berbagi SATU saldo ArxPays (saldo itu
+  yang membatasi pemakaian riil). Perbaikan atomik butuh Durable
+  Object — v2, bukan sekarang.
+
+### Yang dilihat pembeli
+
+1. Order seperti biasa: pilih paket → email → konfirmasi → QRIS.
+2. Setelah bayar, yang diterima: key `ca-...` + Base URL gateway
+   (milik user) + daftar model. TIDAK ADA key `arx-live-` di pesan
+   mana pun.
+
+### Alur sistem (per pembelian)
+
+1. Bot: order → invoice ArxPays → QRIS → status PAID → ArxPays
+   mengembalikan key `arx-live-` (seperti sekarang).
+2. Bot: panggil API ArsRouter Proxy untuk membuat key `ca-...` yang
+   tertaut ke key ArxPays itu (kuota = token paket yang dibeli).
+3. Bot: kirim key `ca-...` + Base URL gateway + model ke pembeli.
+   Key ArxPays TIDAK PERNAH dikirim ke pembeli, TIDAK PERNAH disimpan
+   di KV bot, TIDAK PERNAH di-log. Bot hanya menumpang lewat saat
+   langkah 2.
+4. Pembeli pakai key `ca-...` ke gateway user → gateway meneruskan
+   request ke ArxPays memakai key ArxPays yang tertaut itu.
+5. Satu pembelian = satu pasangan key baru (key ArxPays baru +
+   key `ca-...` baru). Top-up key yang sama = fitur belakangan (v2),
+   bukan scope desain ini.
+
+### Perubahan ArsRouter Proxy (gateway)
+
+- KV: record key `ca-...` mendapat field upstream (base URL ArxPays +
+  key ArxPays tertaut). Routing memakai upstream milik key itu,
+  BUKAN provider global River. (Provider River tetap untuk key-key
+  gateway yang lama.)
+- Kuota: key hasil bot bertipe "paket" — kuota = token paket dan
+  TIDAK RESET bulanan (beda dari kuota bulanan key gateway sekarang;
+  reset bulanan akan salah menghidupkan paket yang sudah habis).
+- `/v1/models` gateway: `owned_by` harus ditutup merek sendiri —
+  kalau list model menayangkan `owned_by: "arxpays"`, dapur masih
+  ke-spil dari situ. Nama model tetap (itu nama fitur, bukan nama
+  supplier).
+- Kredensial bot: endpoint khusus pembuatan key untuk bot, dengan
+  kredensial TERPISAH yang hanya boleh membuat key. JANGAN PERNAH
+  berikan `ADMIN_KEY` gateway ke bot (aturan v2 yang sudah ada).
+
+### Perubahan bot
+
+- Setelah PAID: tambah langkah "buat key `ca-...` via gateway"
+  sebelum kirim pesan sukses. Pesan sukses memuat key `ca-...`,
+  Base URL gateway, dan model — bukan lagi Base URL whitelabel
+  ArxPays.
+- Gagal buat key gateway (gateway down / auth gagal): JANGAN kirim
+  key ArxPays mentah sebagai fallback otomatis. Tandai order
+  "menunggu key", ulangi lewat cron sweep, dan tombol Cek Status
+  memberi tahu pembeli key sedang disiapkan. Fallback kirim key
+  mentah hanya boleh atas keputusan manual admin.
+- Harga/paket/katalog TIDAK BERUBAH (tetap order ArxPays + markup
+  30% yang terkunci).
+
+### Keamanan — dibaca sebelum build
+
+- Key ArxPays pembeli tersimpan MENTAH di KV gateway (wajib, karena
+  gateway harus menunjukkan key itu ke ArxPays saat meneruskan).
+  Perlakukan KV gateway sebagai tempat secret: tidak di-log, tidak
+  diumbar, akses admin saja. Kalau KV bocor, key ArxPays pembeli
+  ikut bocor.
+- Bot tidak menyimpan key ArxPays di KV-nya sendiri, di log, atau di
+  riwayat yang bisa dibaca ulang selain chat pembeli — dan chat
+  pembeli TIDAK PERNAH berisi key ArxPays di alur ini.
+
+### Tradeoff yang disetujui user saat build
+
+- Pembeli menjadi tergantung gateway user hidup: kalau gateway down,
+  key `ca-...` tidak bisa dipakai (beda dari sekarang, pembeli
+  memegang key ArxPays langsung yang jalan walau sistem user mati).
+  Gateway di Pages (always-on) membuat risiko ini kecil, tapi tetap
+  dependensi baru.
+
+### Rencana tes (sebelum dianggap jadi)
+
+- Tes unit SELESAI (2026-10-29): gateway 13/13, bot 13/13 (lihat
+  "Implementasi" di atas).
+- Tes LIVE (menunggu user, butuh 1 order tes Rp 7.150):
+  1. Order tes → key `ca-...` terbit → chat via gateway pakai key
+     `ca-...` dijawab (model ArxPays lewat gateway).
+  2. Saldo ArxPays berkurang sesuai pemakaian lewat gateway.
+  3. Gateway dimatikan sesaat → order masuk status "menunggu key",
+     tidak ada key mentah yang terkirim; setelah gateway hidup, sweep
+     menyelesaikan pengiriman.
+  4. `/v1/models` gateway dengan key hybrid tidak menampakkan
+     `arxpays` di mana pun.
+
+### Keputusan yang masih terbuka
+
+- Base URL gateway untuk pembeli: DIPUTUS v1 = URL Pages
+  (`cloud-arsgamingstore.pages.dev/v1`, via `GATEWAY_URL`); custom
+  domain belakangan (tinggal ubah `GATEWAY_URL`).
+- Website toko (scope a/b/c dari 2026-10-29) = masih terbuka, tidak
+  menghambat alur hybrid bot.
+- Top-up key yang sama (pakai `topup_key` ArxPays + tambah kuota
+  key `ca-...`) = v2, bukan sekarang.

@@ -26,10 +26,18 @@ class FakeKV {
 
 function fakeTg() {
   const sent = [];
+  const deleted = [];
+  let nextId = 100;
   return {
     sent,
+    deleted,
     async sendMessage(chatId, text, markup, effectId) {
-      sent.push({ kind: "message", chatId, text, markup, effectId });
+      const id = nextId++;
+      sent.push({ kind: "message", chatId, text, markup, effectId, id });
+      return id;
+    },
+    async deleteMessage(chatId, messageId) {
+      deleted.push({ chatId, messageId });
       return true;
     },
     async sendPhoto(chatId, photo, caption) {
@@ -108,19 +116,23 @@ test("/start mengirim welcome personal + menu", async () => {
   const kv = new FakeKV();
   const tg = fakeTg();
   await handleUpdate(ENV, kv, tg, start({ first_name: "Budi", last_name: "Santoso", username: "budi123" }), stubArxpay().fetcher);
-  assert.equal(tg.sent.length, 1);
-  assert.equal(tg.sent[0].effectId, "5104841245755180586");
-  assert.match(tg.sent[0].text, /SELAMAT DATANG, Budi Santoso/);
-  assert.match(tg.sent[0].text, /Bot Kebutuhan AI/);
-  assert.ok(tg.sent[0].markup.inline_keyboard.length >= 3);
+  assert.equal(tg.sent.length, 2);
+  // Pesan pertama = loading, dihapus, lalu welcome pakai efek api.
+  assert.match(tg.sent[0].text, /Memuat/);
+  assert.equal(tg.sent[0].effectId, undefined);
+  assert.deepEqual(tg.deleted, [{ chatId: CHAT, messageId: tg.sent[0].id }]);
+  assert.equal(tg.sent[1].effectId, "5104841245755180586");
+  assert.match(tg.sent[1].text, /SELAMAT DATANG, Budi Santoso/);
+  assert.match(tg.sent[1].text, /Bot Kebutuhan AI/);
+  assert.ok(tg.sent[1].markup.inline_keyboard.length >= 3);
   // Tanpa nama depan → pakai @username.
   const tg2 = fakeTg();
   await handleUpdate(ENV, new FakeKV(), tg2, start({ username: "budi123" }), stubArxpay().fetcher);
-  assert.match(tg2.sent[0].text, /SELAMAT DATANG, @budi123/);
+  assert.match(tg2.sent[1].text, /SELAMAT DATANG, @budi123/);
   // Tanpa info pengirim sama sekali → fallback Kak.
   const tg3 = fakeTg();
   await handleUpdate(ENV, new FakeKV(), tg3, msg("/start"), stubArxpay().fetcher);
-  assert.match(tg3.sent[0].text, /SELAMAT DATANG, Kak/);
+  assert.match(tg3.sent[1].text, /SELAMAT DATANG, Kak/);
 });
 
 test("/start tetap kirim welcome tanpa efek kalau Telegram menolak effect id", async () => {
@@ -139,10 +151,37 @@ test("/start tetap kirim welcome tanpa efek kalau Telegram menolak effect id", a
     },
   };
   await handleUpdate(ENV, new FakeKV(), tg, { message: { chat: { id: CHAT }, text: "/start", from: { first_name: "Budi" } } }, stubArxpay().fetcher);
+  // Stub ini tanpa deleteMessage (objek tg minimal) — penghapusan loading
+  // di-skip, tapi urutan pesan tetap: loading, welcome+efek (gagal), welcome.
+  assert.equal(sent.length, 3);
+  assert.match(sent[0].text, /Memuat/);
+  assert.equal(sent[1].effectId, "5104841245755180586");
+  assert.equal(sent[2].effectId, undefined);
+  assert.match(sent[2].text, /SELAMAT DATANG, Budi/);
+});
+
+test("/start tetap kirim welcome walau hapus loading gagal", async () => {
+  const sent = [];
+  const tg = {
+    sent,
+    async sendMessage(chatId, text, markup, effectId) {
+      sent.push({ chatId, text, markup, effectId });
+      return 42;
+    },
+    async deleteMessage() {
+      throw new Error("delete boom");
+    },
+    async sendPhoto() {
+      return true;
+    },
+    async answerCallbackQuery() {
+      return true;
+    },
+  };
+  await handleUpdate(ENV, new FakeKV(), tg, { message: { chat: { id: CHAT }, text: "/start", from: { first_name: "Budi" } } }, stubArxpay().fetcher);
   assert.equal(sent.length, 2);
-  assert.equal(sent[0].effectId, "5104841245755180586");
-  assert.equal(sent[1].effectId, undefined);
   assert.match(sent[1].text, /SELAMAT DATANG, Budi/);
+  assert.equal(sent[1].effectId, "5104841245755180586");
 });
 
 test("/caraorder mengirim teks bantuan", async () => {

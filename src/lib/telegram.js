@@ -11,12 +11,28 @@ export function tgApi(token, doFetch = fetch) {
     });
     return res.ok;
   }
+  // Seperti post, tapi mengembalikan message_id (atau null kalau gagal).
+  // Dipakai /start: pesan loading harus bisa dihapus lagi.
+  async function postMessageId(method, body) {
+    const res = await doFetch(`${base}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const id = data && data.result && data.result.message_id;
+    return typeof id === "number" ? id : null;
+  }
   return {
     sendMessage(chatId, text, replyMarkup, messageEffectId) {
       const body = { chat_id: chatId, text };
       if (replyMarkup) body.reply_markup = replyMarkup;
       if (messageEffectId) body.message_effect_id = messageEffectId;
-      return post("sendMessage", body);
+      return postMessageId("sendMessage", body);
+    },
+    deleteMessage(chatId, messageId) {
+      return post("deleteMessage", { chat_id: chatId, message_id: messageId });
     },
     sendPhoto(chatId, photo, caption) {
       return post("sendPhoto", { chat_id: chatId, photo, caption: caption || undefined });

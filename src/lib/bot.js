@@ -139,6 +139,18 @@ export async function handleUpdate(env, kv, tg, update, fetcher) {
     if (text === "/start") {
       await kv.delete(stateKey(chatId));
       const welcome = welcomeMessage(msg.from);
+      // Loading ala Jstore: pesan loading dulu, jeda kosmetik sebentar
+      // (BUKAN fetch data — langkah API dicoret user 2026-10-29),
+      // lalu hapus dan kirim welcome pakai efek api.
+      const loadingId = await tg.sendMessage(chatId, "⏳ Memuat data...");
+      await new Promise((r) => setTimeout(r, 900));
+      if (typeof loadingId === "number" && typeof tg.deleteMessage === "function") {
+        try {
+          await tg.deleteMessage(chatId, loadingId);
+        } catch {
+          // Best-effort: kalau gagal dihapus, welcome tetap dikirim.
+        }
+      }
       const sent = await tg.sendMessage(chatId, welcome, mainMenuKeyboard(), FIRE_EFFECT_ID);
       if (!sent) await tg.sendMessage(chatId, welcome, mainMenuKeyboard());
       return;

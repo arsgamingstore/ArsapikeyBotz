@@ -82,6 +82,9 @@ export async function handleUpdate(env, kv, tg, update, fetcher) {
     if (!chatId) return;
     if (text === "/start") {
       await kv.delete(stateKey(chatId));
+      // Pesan satu emoji → aplikasi Telegram memutar efek fullscreen-nya
+      // (🔥 = semburan api), sama seperti animasi di bot contoh.
+      await tg.sendMessage(chatId, "🔥");
       await tg.sendMessage(chatId, welcomeMessage(msg.from), mainMenuKeyboard());
       return;
     }

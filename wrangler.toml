@@ -21,4 +21,10 @@ binding = "BOT_KV"
 id = "3de74e7f803c4d1da8a1e1aa7eda3066"
 
 [triggers]
-crons = ["* * * * *"]
+# Cron tiap 5 menit (BUKAN tiap menit): tiap sapuan = 1 KV list, dan
+# paket gratis batasnya 1.000 list/hari — cron 1 menit = 1.440/hari
+# sehingga limit jebol tiap malam (terbukti 2026-10-29: 50% 15:15,
+# 90% 21:53, jebol 23:38 WIB; hanya list yang 429, read/write jalan).
+# 5 menit = 288 list/hari, aman. Efek: auto-delivery molor s.d. 5 menit;
+# tombol Cek Status manual tetap instan (baca key langsung, bukan list).
+crons = ["*/5 * * * *"]
